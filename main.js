@@ -12,7 +12,7 @@ import {
 	CodeBlock,
 	Essentials,
 	FindAndReplace,
-	FontBackgroundColor,
+	// FontBackgroundColor,
 	FontColor,
 	FontFamily,
 	FontSize,
@@ -37,6 +37,7 @@ import {
 	// PageBreak,
 	Paragraph,
 	PictureEditing,
+	Plugin,
 	RemoveFormat,
 	SelectAll,
 	SourceEditing,
@@ -67,6 +68,117 @@ import {
 import 'ckeditor5/ckeditor5.css';
 
 import './style.css';
+
+function toHexColor( value ) {
+	if ( typeof value !== 'string' ) {
+		return value;
+	}
+
+	const normalized = value.trim().toLowerCase();
+
+	if ( normalized.startsWith( '#' ) ) {
+		return normalized;
+	}
+
+	const rgbMatch = normalized.match( /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+))?\s*\)$/ );
+	if ( rgbMatch ) {
+		const r = Math.max( 0, Math.min( 255, Math.round( Number( rgbMatch[ 1 ] ) ) ) );
+		const g = Math.max( 0, Math.min( 255, Math.round( Number( rgbMatch[ 2 ] ) ) ) );
+		const b = Math.max( 0, Math.min( 255, Math.round( Number( rgbMatch[ 3 ] ) ) ) );
+		return `#${ [ r, g, b ].map( c => c.toString( 16 ).padStart( 2, '0' ) ).join( '' ) }`;
+	}
+
+	const hslMatch = normalized.match( /^hsla?\(\s*([\-\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%(?:\s*,\s*([\d.]+))?\s*\)$/ );
+	if ( hslMatch ) {
+		let h = Number( hslMatch[ 1 ] );
+		const s = Math.max( 0, Math.min( 100, Number( hslMatch[ 2 ] ) ) ) / 100;
+		const l = Math.max( 0, Math.min( 100, Number( hslMatch[ 3 ] ) ) ) / 100;
+
+		h = ( ( h % 360 ) + 360 ) % 360;
+
+		const c = ( 1 - Math.abs( 2 * l - 1 ) ) * s;
+		const x = c * ( 1 - Math.abs( ( h / 60 ) % 2 - 1 ) );
+		const m = l - c / 2;
+
+		let r1 = 0;
+		let g1 = 0;
+		let b1 = 0;
+
+		if ( h < 60 ) {
+			r1 = c;
+			g1 = x;
+		} else if ( h < 120 ) {
+			r1 = x;
+			g1 = c;
+		} else if ( h < 180 ) {
+			g1 = c;
+			b1 = x;
+		} else if ( h < 240 ) {
+			g1 = x;
+			b1 = c;
+		} else if ( h < 300 ) {
+			r1 = x;
+			b1 = c;
+		} else {
+			r1 = c;
+			b1 = x;
+		}
+
+		const r = Math.max( 0, Math.min( 255, Math.round( ( r1 + m ) * 255 ) ) );
+		const g = Math.max( 0, Math.min( 255, Math.round( ( g1 + m ) * 255 ) ) );
+		const b = Math.max( 0, Math.min( 255, Math.round( ( b1 + m ) * 255 ) ) );
+
+		return `#${ [ r, g, b ].map( ch => ch.toString( 16 ).padStart( 2, '0' ) ).join( '' ) }`;
+	}
+
+	return value;
+}
+
+
+class TableColorHexNormalizer extends Plugin {
+	static get pluginName() {
+		return 'TableColorHexNormalizer';
+	}
+
+	init() {
+		const editor = this.editor;
+		const normalizedKeys = new Set( [
+			'tableBorderColor',
+			'tableBackgroundColor',
+			'tableCellBorderColor',
+			'tableCellBackgroundColor'
+		] );
+
+		editor.model.document.registerPostFixer( writer => {
+			let changed = false;
+
+			for ( const entry of editor.model.document.differ.getChanges() ) {
+				if ( entry.type !== 'attribute' ) {
+					continue;
+				}
+
+				if ( !normalizedKeys.has( entry.attributeKey ) ) {
+					continue;
+				}
+
+				const item = entry.range && entry.range.start ? ( entry.range.start.nodeAfter || entry.range.start.parent ) : null;
+				if ( !item || !item.is( 'element' ) ) {
+					continue;
+				}
+
+				const currentValue = item.getAttribute( entry.attributeKey );
+				const hexValue = toHexColor( currentValue );
+
+				if ( typeof currentValue === 'string' && typeof hexValue === 'string' && currentValue !== hexValue ) {
+					writer.setAttribute( entry.attributeKey, hexValue, item );
+					changed = true;
+				}
+			}
+
+			return changed;
+		} );
+	}
+}
 
 const editorConfig = {
 	toolbar: {
@@ -102,7 +214,7 @@ const editorConfig = {
 			'fontFamily',
 			'fontSize',
 			'fontColor',
-			'fontBackgroundColor',
+			// 'fontBackgroundColor',
 			'highlight',
 			// 'caseChange', need keys
 			// 'formatPainter', need keys
@@ -141,6 +253,12 @@ const editorConfig = {
 	},
 	fontFamily: {
 		supportAllValues: true
+	},
+	fontColor: {
+		colorPicker: { format: 'hex' }
+	},
+	fontBackgroundColor: {
+		colorPicker: false,
 	},
 	fontSize: {
 		options: [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24],
@@ -257,7 +375,13 @@ const editorConfig = {
 		isVisible: true
 	},
 	table: {
-		contentToolbar: ['tableColumn', 'tableRow', 'mergeTableCells', 'tableProperties', 'tableCellProperties']
+		contentToolbar: ['tableColumn', 'tableRow', 'mergeTableCells', 'tableProperties', 'tableCellProperties'],
+		tableProperties: {
+			colorPicker: { format: 'hex' }
+		},
+		tableCellProperties: {
+			colorPicker: { format: 'hex' }
+		}
 	}
 };
 
@@ -276,7 +400,7 @@ Editor.builtinPlugins = [
 	CodeBlock,
 	Essentials,
 	FindAndReplace,
-	FontBackgroundColor,
+	// FontBackgroundColor,
 	FontColor,
 	FontFamily,
 	FontSize,
@@ -321,6 +445,7 @@ Editor.builtinPlugins = [
 	TableColumnResize,
 	TableProperties,
 	TableToolbar,
+	TableColorHexNormalizer,
 	TextTransformation,
 	Underline,
 	TodoList,
